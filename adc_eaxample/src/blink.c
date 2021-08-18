@@ -28,29 +28,40 @@
 volatile uint32_t msTicks; /* counts 1ms timeTicks */
 volatile uint16_t adcReading0 = 0;
 volatile uint16_t adcReading1 = 0;
+volatile uint16_t adcReading2 = 0;
+volatile uint16_t pcbTemp = 0;
 volatile bool adc_set = false;
 
 void ADC0_IRQHandler(void)
 {
 	uint32_t status = 0;
 	uint32_t valid = 0;
-	ADC0->IFC = ADC_IFC_SCAN;
-	status = (((ADC0->STATUS)& _ADC_STATUS_SCANDATASRC_MASK)>>24);
-	valid = (ADC0->STATUS) & ADC_STATUS_SCANDV;
-	if(ADC0->STATUS & ADC_STATUS_SCANDV)
-	{
-		switch(status)
+	if(ADC0->IF & ADC_IF_SCAN){
+		ADC0->IFC = ADC_IFC_SCAN;
+		status = (((ADC0->STATUS)& _ADC_STATUS_SCANDATASRC_MASK)>>24);
+		valid = (ADC0->STATUS) & ADC_STATUS_SCANDV;
+		if(ADC0->STATUS & ADC_STATUS_SCANDV)
 		{
-			case 0:
-				adcReading0 = ADC_DataScanGet(ADC0);
-				adc_set = true;
-				break;
-			case 1:
-				adcReading1 = ADC_DataScanGet(ADC0);
-				adc_set = true;
-				break;
+			switch(status)
+			{
+				case 0:
+					adcReading0 = ADC_DataScanGet(ADC0);
+					adc_set = true;
+					break;
+				case 1:
+					adcReading1 = ADC_DataScanGet(ADC0);
+					adc_set = true;
+					break;
+				case 2:
+					adcReading2 = ADC_DataScanGet(ADC0);
+					adc_set = true;
+					break;
+			}
 		}
-
+	}
+	else if(ADC0->IF & ADC_IF_SINGLE){
+		ADC0->IFC = ADC_IFC_SINGLE;
+		pcbTemp = ADC_DataSingleGet(ADC0);
 	}
 	GPIO_PinOutToggle(gpioPortC, 1);
 
@@ -151,10 +162,12 @@ void adc_config(void)
 	// Base the ADC configuration on the default setup.
 	ADC_Init_TypeDef       init       = ADC_INIT_DEFAULT;
 	ADC_InitScan_TypeDef  init_scan = ADC_INITSCAN_DEFAULT;
+	ADC_InitSingle_TypeDef init_single = ADC_INITSINGLE_DEFAULT;
 
 	// Initialize timebases
 	init.timebase = ADC_TimebaseCalc(0);
 	init.prescale = ADC_PrescaleCalc(10000,0);
+	init.tailgate = true;
 	ADC_Init(ADC0, &init);
 
 	init_scan.reference = adcRef2V5;
@@ -163,8 +176,14 @@ void adc_config(void)
 	init_scan.diff = false;
 	init_scan.prsEnable = true;
 	ADC_InitScan(ADC0, &init_scan);
+
+	init_single.reference = adcRef2V5;
+	init_single.input = adcSingleInpTemp;
+	init_single.prsEnable = true;
+	ADC_InitSingle(ADC0, &init_single);
+
 	// Enable ADC Interrupt when Single and SCAN conversion Complete
-	ADC0->IEN = ADC_IEN_SCAN;
+	ADC0->IEN = ADC_IEN_SCAN | ADC_IEN_SINGLE;
 //	ADC0->IEN = ADC_IEN_SINGLE;
 	// Enable ADC interrupt vector in NVIC
 	NVIC_EnableIRQ(ADC0_IRQn);
